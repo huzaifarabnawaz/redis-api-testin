@@ -1,0 +1,48 @@
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
+const redis = require("redis");
+const redisclient = redis.createClient();
+
+const DEFAULT_EXPIRATION = 3900;
+
+const app = express();
+app.use(express.urlencoded({ extended: true }));
+app.use(cors());
+
+
+(async () => {
+    try {
+        await redisclient.connect();
+        console.log("Connected to Redis");
+    } catch (err) {
+        console.error("Redis connection error:", err);
+    }
+})();
+
+app.get("/photos", async (req, res) => {
+    try {
+        // Check if photos data is cached in Redis
+        const cachedPhotos = await redisclient.get("/photos");
+        if (cachedPhotos) {
+            console.log("Returning cached data");
+            return res.json(JSON.parse(cachedPhotos));
+        }
+
+        // If not cached, fetch data from external API
+        const { data } = await axios.get("https://jsonplaceholder.typicode.com/photos");
+
+        // Cache the new data in Redis with expiration
+        await redisclient.setEx("/photos", DEFAULT_EXPIRATION, JSON.stringify(data));
+
+        // Send the API data back to the client
+        res.json(data);
+    } catch (error) {
+        console.error("Error fetching photos:", error);
+        res.status(500).send("Server error");
+    }
+});
+
+app.listen(5000, () => {
+    console.log("Server is running on port 5000");
+});
